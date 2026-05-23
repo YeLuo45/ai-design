@@ -1,0 +1,16 @@
+{
+  "name": "daemon",
+  "version": "1.0.0",
+  "description": "AI Design Daemon - Local coding agent runtime",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsc && node dist/index.js",
+    "build": "tsc"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.8.2"
+  }
+}

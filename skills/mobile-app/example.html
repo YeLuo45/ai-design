@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Mobile App Example</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { max-width: 430px; margin: 0 auto; background: #f5f5f5; }
+    .safe-area-bottom { padding-bottom: env(safe-area-inset-bottom, 20px); }
+  </style>
+</head>
+<body class="bg-gray-100">
+  <!-- Status Bar -->
+  <div class="h-11 bg-white px-6 flex items-center justify-between text-sm">
+    <span class="font-medium">9:41</span>
+    <div class="flex items-center gap-1">
+      <span>📶</span>
+      <span>🔋</span>
+    </div>
+  </div>
+
+  <!-- Header -->
+  <div class="bg-white px-4 py-3 flex items-center justify-between border-b border-gray-200">
+    <div class="flex items-center gap-3">
+      <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=Felix" class="w-10 h-10 rounded-full bg-gray-200" alt="Profile">
+      <div>
+        <div class="font-semibold text-gray-900">John Smith</div>
+        <div class="text-xs text-gray-500">@johnsmith</div>
+      </div>
+    </div>
+    <button class="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center">
+      <span>🔔</span>
+    </button>
+  </div>
+
+  <!-- Content Area -->
+  <div class="pb-20">
+    <!-- Post 1 -->
+    <div class="bg-white mb-2">
+      <div class="p-4 flex items-center gap-3">
+        <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=Sarah" class="w-10 h-10 rounded-full bg-gray-200" alt="User">
+        <div class="flex-1">
+          <div class="font-semibold text-gray-900">Sarah Lee</div>
+          <div class="text-xs text-gray-500">2 hours ago</div>
+        </div>
+      </div>
+      <img src="https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=430&h=300&fit=crop" class="w-full" alt="Mountain">
+      <div class="p-4">
+        <div class="flex items-center gap-6 mb-4">
+          <button class="flex items-center gap-2 text-gray-600 hover:text-red-500 transition-colors">
+            <span class="text-xl">🤍</span>
+            <span>2.4k</span>
+          </button>
+          <button class="flex items-center gap-2 text-gray-600 hover:text-blue-500 transition-colors">
+            <span class="text-xl">💬</span>
+            <span>128</span>
+          </button>
+          <button class="flex items-center gap-2 text-gray-600 hover:text-green-500 transition-colors">
+            <span class="text-xl">↗️</span>
+            <span>Share</span>
+          </button>
+        </div>
+        <p class="text-gray-800"><span class="font-semibold">Sarah Lee</span> Absolutely stunning view from the top! 🏔️ #nature #hiking</p>
+      </div>
+    </div>
+
+    <!-- Post 2 -->
+    <div class="bg-white mb-2">
+      <div class="p-4 flex items-center gap-3">
+        <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=Mike" class="w-10 h-10 rounded-full bg-gray-200" alt="User">
+        <div class="flex-1">
+          <div class="font-semibold text-gray-900">Mike Chen</div>
+          <div class="text-xs text-gray-500">5 hours ago</div>
+        </div>
+      </div>
+      <img src="https://images.unsplash.com/photo-1551687293-1c5ff1a0e4c5?w=430&h=300&fit=crop" class="w-full" alt="City">
+      <div class="p-4">
+        <div class="flex items-center gap-6 mb-4">
+          <button class="flex items-center gap-2 text-gray-600 hover:text-red-500 transition-colors">
+            <span class="text-xl">🤍</span>
+            <span>1.8k</span>
+          </button>
+          <button class="flex items-center gap-2 text-gray-600 hover:text-blue-500 transition-colors">
+            <span class="text-xl">💬</span>
+            <span>95</span>
+          </button>
+          <button class="flex items-center gap-2 text-gray-600 hover:text-green-500 transition-colors">
+            <span class="text-xl">↗️</span>
+            <span>Share</span>
+          </button>
+        </div>
+        <p class="text-gray-800"><span class="font-semibold">Mike Chen</span> City lights never get old 🌃</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bottom Navigation -->
+  <nav class="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 safe-area-bottom">
+    <div class="max-w-[430px] mx-auto flex justify-around py-3">
+      <button class="flex flex-col items-center gap-1 text-blue-600">
+        <span class="text-2xl">🏠</span>
+        <span class="text-xs">Home</span>
+      </button>
+      <button class="flex flex-col items-center gap-1 text-gray-400">
+        <span class="text-2xl">🔍</span>
+        <span class="text-xs">Search</span>
+      </button>
+      <button class="flex flex-col items-center gap-1 text-gray-400">
+        <span class="text-2xl">➕</span>
+        <span class="text-xs">Add</span>
+      </button>
+      <button class="flex flex-col items-center gap-1 text-gray-400">
+        <span class="text-2xl">💬</span>
+        <span class="text-xs">Messages</span>
+      </button>
+      <button class="flex flex-col items-center gap-1 text-gray-400">
+        <span class="text-2xl">👤</span>
+        <span class="text-xs">Profile</span>
+      </button>
+    </div>
+  </nav>
+</body>
+</html>
