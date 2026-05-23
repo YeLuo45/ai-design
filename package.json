@@ -7,9 +7,10 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "tools-dev": "node apps/daemon/dist/index.js"
+    "tools-dev": "node apps/daemon/src/index.mjs"
   },
   "dependencies": {
+    "better-sqlite3": "^12.10.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6"
   },
