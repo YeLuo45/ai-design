@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
+import JSZip from 'jszip';
 
 type VisualDirection = 'editorial' | 'minimal' | 'warm' | 'tech' | 'brutalist';
 type SkillType = 'web-prototype' | 'dashboard' | 'mobile-app';
 type DeviceFrame = 'iphone' | 'pixel' | 'ipad' | 'macbook' | 'browser';
+type PreviewMode = 'light' | 'dark';
 
 interface Artifact {
   id: string;
@@ -17,11 +19,6 @@ interface TaskProgress {
   skill: SkillType;
   status: 'pending' | 'in_progress' | 'completed' | 'failed';
   message: string;
-}
-
-interface AgentInfo {
-  name: string;
-  status: 'detected' | 'running' | 'stopped';
 }
 
 interface DaemonStatus {
@@ -57,15 +54,18 @@ function App() {
   const [selectedSkill, setSelectedSkill] = useState<SkillType | null>(null);
   const [selectedDirection, setSelectedDirection] = useState<VisualDirection>('minimal');
   const [selectedFrame, setSelectedFrame] = useState<DeviceFrame>('browser');
+  const [previewMode, setPreviewMode] = useState<PreviewMode>('light');
+  const [zoom, setZoom] = useState(100);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [brief, setBrief] = useState('');
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [tasks, setTasks] = useState<TaskProgress[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [daemonStatus, setDaemonStatus] = useState<DaemonStatus>({ status: 'disconnected', agents: [] });
-  const [projects, setProjects] = useState<any[]>([]);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [showExportMenu, setShowExportMenu] = useState(false);
   const eventSourceRef = useRef<EventSource | null>(null);
 
-  // Connect to daemon SSE
   useEffect(() => {
     const connectDaemon = async () => {
       try {
@@ -73,42 +73,27 @@ function App() {
         if (res.ok) {
           const data = await res.json();
           setDaemonStatus({ status: 'connected', agents: data.agents || [] });
-          
-          // Fetch projects
-          const projRes = await fetch('http://localhost:3001/api/projects');
-          if (projRes.ok) setProjects(await projRes.json());
         }
       } catch {
         setDaemonStatus({ status: 'disconnected', agents: [] });
       }
     };
     connectDaemon();
-    
-    // SSE connection
     const sse = new EventSource('http://localhost:3001/api/sse');
-    sse.onmessage = (e) => {
-      try {
-        const data = JSON.parse(e.data);
-        if (data.type === 'connected') setDaemonStatus(prev => ({ ...prev, agents: data.agents || prev.agents }));
-      } catch {}
-    };
+    sse.onmessage = (e) => { try { const data = JSON.parse(e.data); if (data.type === 'connected') setDaemonStatus(prev => ({ ...prev, agents: data.agents || prev.agents })); } catch {} };
     sse.onerror = () => setDaemonStatus(prev => ({ ...prev, status: 'disconnected' }));
     eventSourceRef.current = sse;
-    
     return () => { eventSourceRef.current?.close(); };
   }, []);
 
   const handleGenerate = async () => {
     if (!selectedSkill || !brief.trim()) return;
-
     const taskId = Date.now().toString();
     const newTask: TaskProgress = { id: taskId, skill: selectedSkill, status: 'in_progress', message: 'Initializing...' };
     setTasks(prev => [...prev, newTask]);
-
     const messages = ['Analyzing requirements...', 'Creating structure...', 'Applying style...', 'Generating...', 'Finalizing...'];
     let msgIndex = 0;
     setIsGenerating(true);
-
     const interval = setInterval(() => {
       if (msgIndex < messages.length) {
         setTasks(prev => prev.map(t => t.id === taskId ? { ...t, message: messages[msgIndex] } : t));
@@ -124,6 +109,40 @@ function App() {
     }, 600);
   };
 
+  const copyToClipboard = async (artifact: Artifact) => {
+    await navigator.clipboard.writeText(artifact.content);
+    setCopiedId(artifact.id);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  const exportHTML = (artifact: Artifact) => {
+    const blob = new Blob([artifact.content], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `artifact-${artifact.id}.html`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportZIP = async (artifactsToExport: Artifact[]) => {
+    const zip = new JSZip();
+    artifactsToExport.forEach((artifact, i) => {
+      zip.file(`artifact-${i + 1}.html`, artifact.content);
+    });
+    const blob = await zip.generateAsync({ type: 'blob' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `artifacts-${Date.now()}.zip`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const currentArtifact = artifacts[artifacts.length - 1];
+  const previewBg = previewMode === 'dark' ? '#1a1a1a' : '#e4e4e7';
+  const previewFilter = previewMode === 'dark' ? 'invert(1) hue-rotate(180deg)' : 'none';
+
   return (
     <div className="min-h-screen bg-zinc-50">
       {/* Header */}
@@ -131,7 +150,7 @@ function App() {
         <div className="flex items-center justify-between max-w-7xl mx-auto">
           <h1 className="text-2xl font-bold text-zinc-900">AI Design</h1>
           <div className="flex items-center gap-4">
-            <span className="text-sm text-zinc-500">Direction B</span>
+            <span className="text-sm text-zinc-500">Direction C</span>
             <div className={`w-3 h-3 rounded-full ${daemonStatus.status === 'connected' ? 'bg-green-500' : 'bg-red-500'}`}></div>
             <span className="text-xs text-zinc-400">{daemonStatus.agents.length > 0 ? daemonStatus.agents.join(', ') : 'No agents'}</span>
           </div>
@@ -139,20 +158,6 @@ function App() {
       </header>
 
       <main className="max-w-7xl mx-auto px-6 py-8">
-        {/* Daemon Status */}
-        <section className="mb-6 p-4 bg-zinc-100 rounded-xl">
-          <div className="flex items-center gap-4">
-            <span className="text-sm font-medium text-zinc-700">Daemon:</span>
-            <span className={`text-sm ${daemonStatus.status === 'connected' ? 'text-green-600' : 'text-red-600'}`}>
-              {daemonStatus.status === 'connected' ? '● Connected (port 3001)' : '○ Disconnected'}
-            </span>
-            <span className="text-sm text-zinc-500">|</span>
-            <span className="text-sm text-zinc-600">Agents: {daemonStatus.agents.length > 0 ? daemonStatus.agents.join(', ') : 'none detected'}</span>
-            <span className="text-sm text-zinc-500">|</span>
-            <span className="text-sm text-zinc-600">Projects: {projects.length}</span>
-          </div>
-        </section>
-
         {/* Skill Selector */}
         <section className="mb-8">
           <h2 className="text-lg font-semibold text-zinc-900 mb-4">Select Skill</h2>
@@ -192,48 +197,89 @@ function App() {
           </button>
         </section>
 
-        {/* Task Progress */}
-        {tasks.length > 0 && (
-          <section className="mb-8">
-            <h2 className="text-lg font-semibold text-zinc-900 mb-4">Progress</h2>
-            <div className="space-y-2">
-              {tasks.map(task => (
-                <div key={task.id} className={`p-4 rounded-xl border ${task.status === 'completed' ? 'bg-green-50 border-green-200' : task.status === 'failed' ? 'bg-red-50 border-red-200' : 'bg-blue-50 border-blue-200'}`}>
-                  <div className="flex items-center gap-3">
-                    <span className="text-xl">{skillDescriptions[task.skill].icon}</span>
-                    <div className="flex-1">
-                      <p className="font-medium text-zinc-900">{task.message}</p>
-                      <p className="text-sm text-zinc-500">{skillDescriptions[task.skill].name}</p>
-                    </div>
-                    <span className={`text-sm font-medium ${task.status === 'completed' ? 'text-green-600' : task.status === 'failed' ? 'text-red-600' : 'text-blue-600'}`}>
-                      {task.status === 'in_progress' ? 'In Progress...' : task.status}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
-
         {/* Preview */}
-        {artifacts.length > 0 && (
+        {currentArtifact && (
           <section>
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
               <h2 className="text-lg font-semibold text-zinc-900">Preview</h2>
-              <div className="flex gap-2 flex-wrap">
+              
+              {/* Preview Controls */}
+              <div className="flex items-center gap-2 flex-wrap">
+                {/* Theme Toggle */}
+                <button onClick={() => setPreviewMode(m => m === 'light' ? 'dark' : 'light')}
+                  className="px-3 py-1 text-sm rounded-lg border border-zinc-200 bg-white hover:bg-zinc-100">
+                  {previewMode === 'light' ? '🌙' : '☀️'}
+                </button>
+                
+                {/* Zoom */}
+                <div className="flex items-center gap-1">
+                  <button onClick={() => setZoom(z => Math.max(50, z - 25))} className="px-2 py-1 text-sm rounded border border-zinc-200 bg-white">-</button>
+                  <span className="text-sm text-zinc-600 w-12 text-center">{zoom}%</span>
+                  <button onClick={() => setZoom(z => Math.min(200, z + 25))} className="px-2 py-1 text-sm rounded border border-zinc-200 bg-white">+</button>
+                </div>
+                
+                {/* Fullscreen */}
+                <button onClick={() => setIsFullscreen(f => !f)}
+                  className="px-3 py-1 text-sm rounded-lg border border-zinc-200 bg-white hover:bg-zinc-100">
+                  {isFullscreen ? '⛶' : '⛶'}
+                </button>
+                
+                {/* Device Frames */}
                 {(Object.keys(deviceFrames) as DeviceFrame[]).map(frame => (
                   <button key={frame} onClick={() => setSelectedFrame(frame)}
                     className={`px-3 py-1 text-sm rounded-lg border transition-all ${selectedFrame === frame ? 'border-blue-500 bg-blue-500 text-white' : 'border-zinc-200 bg-white text-zinc-700'}`}>
                     {deviceFrames[frame].name}
                   </button>
                 ))}
+                
+                {/* Export */}
+                <div className="relative">
+                  <button onClick={() => setShowExportMenu(m => !m)}
+                    className="px-3 py-1 text-sm rounded-lg border border-zinc-200 bg-white hover:bg-zinc-100">
+                    📦 Export
+                  </button>
+                  {showExportMenu && (
+                    <div className="absolute right-0 top-full mt-1 bg-white border border-zinc-200 rounded-lg shadow-lg z-10 min-w-40">
+                      <button onClick={() => { exportHTML(currentArtifact); setShowExportMenu(false); }}
+                        className="block w-full px-4 py-2 text-sm text-left hover:bg-zinc-100 rounded-lg">HTML</button>
+                      <button onClick={() => { exportZIP(artifacts); setShowExportMenu(false); }}
+                        className="block w-full px-4 py-2 text-sm text-left hover:bg-zinc-100 rounded-lg">ZIP (All)</button>
+                      <button onClick={() => { copyToClipboard(currentArtifact); setShowExportMenu(false); }}
+                        className="block w-full px-4 py-2 text-sm text-left hover:bg-zinc-100 rounded-lg">
+                        {copiedId === currentArtifact.id ? '✓ Copied!' : '📋 Copy Code'}
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
-            <div className="flex justify-center bg-zinc-200 p-8 rounded-xl overflow-auto">
-              <div className="bg-white rounded-lg shadow-2xl" style={{ width: deviceFrames[selectedFrame].width, height: deviceFrames[selectedFrame].height, maxWidth: '100%' }}>
-                <iframe srcDoc={artifacts[artifacts.length - 1].content} className="w-full h-full border-0 rounded-lg" sandbox="allow-scripts" title="Preview" />
+            
+            <div className="flex justify-center p-8 rounded-xl overflow-auto" style={{ background: previewBg }}>
+              <div className="bg-white rounded-lg shadow-2xl transition-all" style={{
+                width: deviceFrames[selectedFrame].width,
+                height: deviceFrames[selectedFrame].height,
+                maxWidth: '100%',
+                transform: `scale(${zoom / 100})`,
+                transformOrigin: 'top center'
+              }}>
+                <iframe srcDoc={currentArtifact.content} className="w-full h-full border-0 rounded-lg" sandbox="allow-scripts" title="Preview" />
               </div>
             </div>
+            
+            {/* Artifact History */}
+            {artifacts.length > 1 && (
+              <div className="mt-4 p-4 bg-zinc-100 rounded-xl">
+                <p className="text-sm text-zinc-600 mb-2">{artifacts.length} artifacts generated</p>
+                <div className="flex gap-2 flex-wrap">
+                  {artifacts.map((a, i) => (
+                    <button key={a.id} onClick={() => setArtifacts(prev => prev.filter(x => x.id !== a.id))}
+                      className={`px-3 py-1 text-sm rounded-lg border ${i === artifacts.length - 1 ? 'border-blue-500 bg-blue-50' : 'border-zinc-200 bg-white'}`}>
+                      #{i + 1} {skillDescriptions[a.skill].icon}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </section>
         )}
       </main>
