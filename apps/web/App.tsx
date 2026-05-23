@@ -14,16 +14,15 @@ interface Artifact {
   createdAt: Date;
 }
 
-interface TaskProgress {
-  id: string;
-  skill: SkillType;
-  status: 'pending' | 'in_progress' | 'completed' | 'failed';
-  message: string;
+interface AgentInfo {
+  name: string;
+  status: string;
 }
 
 interface DaemonStatus {
   status: 'connected' | 'disconnected';
   agents: string[];
+  activeAgents: number;
 }
 
 const skillDescriptions: Record<SkillType, { name: string; description: string; icon: string }> = {
@@ -59,12 +58,14 @@ function App() {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [brief, setBrief] = useState('');
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
-  const [tasks, setTasks] = useState<TaskProgress[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [daemonStatus, setDaemonStatus] = useState<DaemonStatus>({ status: 'disconnected', agents: [] });
+  const [daemonStatus, setDaemonStatus] = useState<DaemonStatus>({ status: 'disconnected', agents: [], activeAgents: 0 });
+  const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
+  const [agentOutputs, setAgentOutputs] = useState<{ sessionId: number; name: string; data: string }[]>([]);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [showExportMenu, setShowExportMenu] = useState(false);
   const eventSourceRef = useRef<EventSource | null>(null);
+  const agentOutputRef = useRef<string[]>([]);
 
   useEffect(() => {
     const connectDaemon = async () => {
@@ -72,10 +73,10 @@ function App() {
         const res = await fetch('http://localhost:3001/health');
         if (res.ok) {
           const data = await res.json();
-          setDaemonStatus({ status: 'connected', agents: data.agents || [] });
+          setDaemonStatus({ status: 'connected', agents: data.agents || [], activeAgents: data.activeAgents || 0 });
         }
       } catch {
-        setDaemonStatus({ status: 'disconnected', agents: [] });
+        setDaemonStatus({ status: 'disconnected', agents: [], activeAgents: 0 });
       }
     };
     connectDaemon();
@@ -88,25 +89,31 @@ function App() {
 
   const handleGenerate = async () => {
     if (!selectedSkill || !brief.trim()) return;
-    const taskId = Date.now().toString();
-    const newTask: TaskProgress = { id: taskId, skill: selectedSkill, status: 'in_progress', message: 'Initializing...' };
-    setTasks(prev => [...prev, newTask]);
-    const messages = ['Analyzing requirements...', 'Creating structure...', 'Applying style...', 'Generating...', 'Finalizing...'];
-    let msgIndex = 0;
     setIsGenerating(true);
-    const interval = setInterval(() => {
-      if (msgIndex < messages.length) {
-        setTasks(prev => prev.map(t => t.id === taskId ? { ...t, message: messages[msgIndex] } : t));
-        msgIndex++;
-      } else {
-        clearInterval(interval);
-        const newArtifact: Artifact = { id: Date.now().toString(), content: sampleArtifact, skill: selectedSkill!, direction: selectedDirection, createdAt: new Date() };
-        setArtifacts(prev => [...prev, newArtifact]);
-        setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: 'completed', message: 'Complete!' } : t));
-        setIsGenerating(false);
-        setBrief('');
+    await new Promise(r => setTimeout(r, 1500));
+    const newArtifact: Artifact = { id: Date.now().toString(), content: sampleArtifact, skill: selectedSkill!, direction: selectedDirection, createdAt: new Date() };
+    setArtifacts(prev => [...prev, newArtifact]);
+    setIsGenerating(false);
+    setBrief('');
+  };
+
+  const spawnAgent = async (agentName: string) => {
+    try {
+      const res = await fetch('http://localhost:3001/api/agents/spawn', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agent: agentName })
+      });
+      if (res.ok) {
+        setSelectedAgent(agentName);
+        const reader = res.body?.getReader();
       }
-    }, 600);
+    } catch (e) { console.error('Spawn failed:', e); }
+  };
+
+  const stopAgent = async (sessionId: number) => {
+    await fetch(`http://localhost:3001/api/agents/stop?sessionId=${sessionId}`, { method: 'POST' });
+    setSelectedAgent(null);
   };
 
   const copyToClipboard = async (artifact: Artifact) => {
@@ -127,9 +134,7 @@ function App() {
 
   const exportZIP = async (artifactsToExport: Artifact[]) => {
     const zip = new JSZip();
-    artifactsToExport.forEach((artifact, i) => {
-      zip.file(`artifact-${i + 1}.html`, artifact.content);
-    });
+    artifactsToExport.forEach((artifact, i) => zip.file(`artifact-${i + 1}.html`, artifact.content));
     const blob = await zip.generateAsync({ type: 'blob' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -141,7 +146,6 @@ function App() {
 
   const currentArtifact = artifacts[artifacts.length - 1];
   const previewBg = previewMode === 'dark' ? '#1a1a1a' : '#e4e4e7';
-  const previewFilter = previewMode === 'dark' ? 'invert(1) hue-rotate(180deg)' : 'none';
 
   return (
     <div className="min-h-screen bg-zinc-50">
@@ -150,14 +154,28 @@ function App() {
         <div className="flex items-center justify-between max-w-7xl mx-auto">
           <h1 className="text-2xl font-bold text-zinc-900">AI Design</h1>
           <div className="flex items-center gap-4">
-            <span className="text-sm text-zinc-500">Direction C</span>
+            <span className="text-sm text-zinc-500">Direction A (Iter 2)</span>
             <div className={`w-3 h-3 rounded-full ${daemonStatus.status === 'connected' ? 'bg-green-500' : 'bg-red-500'}`}></div>
-            <span className="text-xs text-zinc-400">{daemonStatus.agents.length > 0 ? daemonStatus.agents.join(', ') : 'No agents'}</span>
+            <span className="text-xs text-zinc-400">Agents: {daemonStatus.agents.length} | Active: {daemonStatus.activeAgents}</span>
           </div>
         </div>
       </header>
 
       <main className="max-w-7xl mx-auto px-6 py-8">
+        {/* Agent Panel */}
+        <section className="mb-6 p-4 bg-zinc-100 rounded-xl">
+          <div className="flex items-center gap-4 flex-wrap">
+            <span className="text-sm font-medium text-zinc-700">Agents:</span>
+            {daemonStatus.agents.length > 0 ? daemonStatus.agents.map(agent => (
+              <button key={agent} onClick={() => spawnAgent(agent)}
+                className={`px-3 py-1 text-sm rounded-lg border transition-all ${selectedAgent === agent ? 'border-green-500 bg-green-100' : 'border-zinc-200 bg-white hover:bg-zinc-50'}`}>
+                {agent} {selectedAgent === agent ? '●' : ''}
+              </button>
+            )) : <span className="text-sm text-zinc-500">No agents detected</span>}
+            {selectedAgent && <button onClick={() => stopAgent(0)} className="px-3 py-1 text-sm rounded-lg border border-red-200 bg-red-50 text-red-600 hover:bg-red-100">Stop</button>}
+          </div>
+        </section>
+
         {/* Skill Selector */}
         <section className="mb-8">
           <h2 className="text-lg font-semibold text-zinc-900 mb-4">Select Skill</h2>
@@ -202,84 +220,38 @@ function App() {
           <section>
             <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
               <h2 className="text-lg font-semibold text-zinc-900">Preview</h2>
-              
-              {/* Preview Controls */}
               <div className="flex items-center gap-2 flex-wrap">
-                {/* Theme Toggle */}
-                <button onClick={() => setPreviewMode(m => m === 'light' ? 'dark' : 'light')}
-                  className="px-3 py-1 text-sm rounded-lg border border-zinc-200 bg-white hover:bg-zinc-100">
+                <button onClick={() => setPreviewMode(m => m === 'light' ? 'dark' : 'light')} className="px-3 py-1 text-sm rounded-lg border border-zinc-200 bg-white hover:bg-zinc-100">
                   {previewMode === 'light' ? '🌙' : '☀️'}
                 </button>
-                
-                {/* Zoom */}
                 <div className="flex items-center gap-1">
                   <button onClick={() => setZoom(z => Math.max(50, z - 25))} className="px-2 py-1 text-sm rounded border border-zinc-200 bg-white">-</button>
                   <span className="text-sm text-zinc-600 w-12 text-center">{zoom}%</span>
                   <button onClick={() => setZoom(z => Math.min(200, z + 25))} className="px-2 py-1 text-sm rounded border border-zinc-200 bg-white">+</button>
                 </div>
-                
-                {/* Fullscreen */}
-                <button onClick={() => setIsFullscreen(f => !f)}
-                  className="px-3 py-1 text-sm rounded-lg border border-zinc-200 bg-white hover:bg-zinc-100">
-                  {isFullscreen ? '⛶' : '⛶'}
-                </button>
-                
-                {/* Device Frames */}
                 {(Object.keys(deviceFrames) as DeviceFrame[]).map(frame => (
                   <button key={frame} onClick={() => setSelectedFrame(frame)}
                     className={`px-3 py-1 text-sm rounded-lg border transition-all ${selectedFrame === frame ? 'border-blue-500 bg-blue-500 text-white' : 'border-zinc-200 bg-white text-zinc-700'}`}>
                     {deviceFrames[frame].name}
                   </button>
                 ))}
-                
-                {/* Export */}
                 <div className="relative">
-                  <button onClick={() => setShowExportMenu(m => !m)}
-                    className="px-3 py-1 text-sm rounded-lg border border-zinc-200 bg-white hover:bg-zinc-100">
-                    📦 Export
-                  </button>
+                  <button onClick={() => setShowExportMenu(m => !m)} className="px-3 py-1 text-sm rounded-lg border border-zinc-200 bg-white hover:bg-zinc-100">📦 Export</button>
                   {showExportMenu && (
                     <div className="absolute right-0 top-full mt-1 bg-white border border-zinc-200 rounded-lg shadow-lg z-10 min-w-40">
-                      <button onClick={() => { exportHTML(currentArtifact); setShowExportMenu(false); }}
-                        className="block w-full px-4 py-2 text-sm text-left hover:bg-zinc-100 rounded-lg">HTML</button>
-                      <button onClick={() => { exportZIP(artifacts); setShowExportMenu(false); }}
-                        className="block w-full px-4 py-2 text-sm text-left hover:bg-zinc-100 rounded-lg">ZIP (All)</button>
-                      <button onClick={() => { copyToClipboard(currentArtifact); setShowExportMenu(false); }}
-                        className="block w-full px-4 py-2 text-sm text-left hover:bg-zinc-100 rounded-lg">
-                        {copiedId === currentArtifact.id ? '✓ Copied!' : '📋 Copy Code'}
-                      </button>
+                      <button onClick={() => { exportHTML(currentArtifact); setShowExportMenu(false); }} className="block w-full px-4 py-2 text-sm text-left hover:bg-zinc-100 rounded-lg">HTML</button>
+                      <button onClick={() => { exportZIP(artifacts); setShowExportMenu(false); }} className="block w-full px-4 py-2 text-sm text-left hover:bg-zinc-100 rounded-lg">ZIP (All)</button>
+                      <button onClick={() => { copyToClipboard(currentArtifact); setShowExportMenu(false); }} className="block w-full px-4 py-2 text-sm text-left hover:bg-zinc-100 rounded-lg">{copiedId === currentArtifact.id ? '✓ Copied!' : '📋 Copy Code'}</button>
                     </div>
                   )}
                 </div>
               </div>
             </div>
-            
             <div className="flex justify-center p-8 rounded-xl overflow-auto" style={{ background: previewBg }}>
-              <div className="bg-white rounded-lg shadow-2xl transition-all" style={{
-                width: deviceFrames[selectedFrame].width,
-                height: deviceFrames[selectedFrame].height,
-                maxWidth: '100%',
-                transform: `scale(${zoom / 100})`,
-                transformOrigin: 'top center'
-              }}>
+              <div className="bg-white rounded-lg shadow-2xl" style={{ width: deviceFrames[selectedFrame].width, height: deviceFrames[selectedFrame].height, maxWidth: '100%', transform: `scale(${zoom / 100})`, transformOrigin: 'top center' }}>
                 <iframe srcDoc={currentArtifact.content} className="w-full h-full border-0 rounded-lg" sandbox="allow-scripts" title="Preview" />
               </div>
             </div>
-            
-            {/* Artifact History */}
-            {artifacts.length > 1 && (
-              <div className="mt-4 p-4 bg-zinc-100 rounded-xl">
-                <p className="text-sm text-zinc-600 mb-2">{artifacts.length} artifacts generated</p>
-                <div className="flex gap-2 flex-wrap">
-                  {artifacts.map((a, i) => (
-                    <button key={a.id} onClick={() => setArtifacts(prev => prev.filter(x => x.id !== a.id))}
-                      className={`px-3 py-1 text-sm rounded-lg border ${i === artifacts.length - 1 ? 'border-blue-500 bg-blue-50' : 'border-zinc-200 bg-white'}`}>
-                      #{i + 1} {skillDescriptions[a.skill].icon}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
           </section>
         )}
       </main>
