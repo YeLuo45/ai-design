@@ -3,6 +3,8 @@ import { spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { eventBus } from './event-bus.js';
+import { taskQueue } from './task-queue.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '../../..');
@@ -86,6 +88,26 @@ function parseBody(req: any): Promise<any> {
   });
 }
 
+// SSE clients for event broadcasting
+const sseClients: Set<any> = new Set();
+
+// Broadcast event to all SSE clients
+function broadcastEvent(eventType: string, data: any): void {
+  const payload = JSON.stringify({ type: eventType, data, timestamp: Date.now() });
+  for (const client of sseClients) {
+    try {
+      client.write(`data: ${payload}\n\n`);
+    } catch {
+      sseClients.delete(client);
+    }
+  }
+}
+
+// Subscribe eventBus to broadcast events
+eventBus.on('agent_started', (data: any) => broadcastEvent('agent_started', data));
+eventBus.on('agent_completed', (data: any) => broadcastEvent('agent_completed', data));
+eventBus.on('artifact_generated', (data: any) => broadcastEvent('artifact_generated', data));
+
 // Routes
 const routes: Record<string, (req: any, res: any) => void> = {
   '/health': (req, res) => {
@@ -116,19 +138,83 @@ const routes: Record<string, (req: any, res: any) => void> = {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(detectAgents()));
   },
+  '/api/tasks': (req, res) => {
+    if (req.method === 'POST') {
+      parseBody(req).then(body => {
+        const id = taskQueue.enqueue(body.data || body);
+        eventBus.publish('task_enqueued', { id, data: body });
+        res.writeHead(201, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ id }));
+      });
+    } else if (req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(taskQueue.listTasks()));
+    } else {
+      res.writeHead(405).end();
+    }
+  },
+  '/api/tasks/:id': (req, res) => {
+    const url = new URL(req.url || '/', `http://localhost:${PORT}`);
+    const id = url.pathname.split('/').pop() || '';
+    if (req.method === 'GET') {
+      const task = taskQueue.getStatus(id);
+      if (task) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(task));
+      } else {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Task not found' }));
+      }
+    } else if (req.method === 'DELETE') {
+      const cancelled = taskQueue.cancel(id);
+      if (cancelled) {
+        eventBus.publish('task_cancelled', { id });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true }));
+      } else {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Cannot cancel task' }));
+      }
+    } else {
+      res.writeHead(405).end();
+    }
+  },
+  '/api/events': (req, res) => {
+    if (req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(eventBus.getHistory()));
+    } else {
+      res.writeHead(405).end();
+    }
+  },
   '/api/sse': (req, res) => {
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
       'Connection': 'keep-alive'
     });
-    // Send initial event
-    res.write('data: {"type":"connected","agents":' + JSON.stringify(detectAgents()) + '}\n\n');
+    
+    // Register SSE client
+    sseClients.add(res);
+    
+    // Send initial connected event with agents
+    const agents = detectAgents();
+    res.write(`data: ${JSON.stringify({ type: 'connected', agents, timestamp: Date.now() })}\n\n`);
+    
     // Keep alive ping
     const interval = setInterval(() => {
-      res.write('data: {"type":"ping"}\n\n');
+      try {
+        res.write(`data: ${JSON.stringify({ type: 'ping', timestamp: Date.now() })}\n\n`);
+      } catch {
+        clearInterval(interval);
+        sseClients.delete(res);
+      }
     }, 30000);
-    req.on('close', () => clearInterval(interval));
+    
+    req.on('close', () => {
+      clearInterval(interval);
+      sseClients.delete(res);
+    });
   }
 };
 
@@ -141,7 +227,7 @@ const server = http.createServer(async (req, res) => {
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
-
+  
   const handler = routes[url.pathname];
   if (handler) {
     handler(req, res);
